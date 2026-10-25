@@ -6,6 +6,7 @@ on:
       ref_url: {default: ""}
       ref_scale: {default: "0.6"}
       seed: {default: "2026"}
+      only_views: {default: ""}
 permissions:
   contents: write
 jobs:
@@ -23,7 +24,7 @@ jobs:
         env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
       - run: if [ -n "${{ inputs.ref_url }}" ]; then curl -sL "${{ inputs.ref_url }}" -o ref.png; fi
       - run: python studio/charsheet.py ${{ matrix.job }} 12 views
-        env: {REF: "ref.png", REF_SCALE: "${{ inputs.ref_scale }}", SEED: "${{ inputs.seed }}"}
+        env: {REF: "ref.png", REF_SCALE: "${{ inputs.ref_scale }}", SEED: "${{ inputs.seed }}", ONLY_VIEWS: "${{ inputs.only_views }}"}
       - uses: actions/upload-artifact@v4
         with: {name: "view-${{ matrix.job }}", path: views, retention-days: 3}
   sheet:
