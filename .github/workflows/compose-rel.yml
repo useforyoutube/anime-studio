@@ -1,0 +1,54 @@
+name: Compose from release (8 machines)
+on:
+  workflow_dispatch:
+    inputs:
+      run_id: {default: "0"}
+      tag: {default: "pehla-vaar-90s"}
+permissions:
+  contents: write
+  actions: read
+jobs:
+  part:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        k: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-core libraqm0 libfribidi0 > /dev/null
+      - run: pip install -q cryptography numpy pillow
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: python studio/collect90.py "${{ inputs.tag }}" "${{ inputs.run_id }}" 0
+        env: {GH_TOKEN: "${{ github.token }}", TAG: "${{ inputs.tag }}"}
+      - run: python studio/comp90.py part ${{ matrix.k }} 8 drawings
+      - uses: actions/upload-artifact@v4
+        with: {name: "fr-${{ matrix.k }}", path: frames90, retention-days: 1, compression-level: 0}
+  audio:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install -q cryptography numpy pillow edge-tts imageio-ffmpeg && sudo ln -sf $(python -c "import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())") /usr/local/bin/ffmpeg
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: python studio/comp90.py audio
+      - uses: actions/upload-artifact@v4
+        with: {name: audio90, path: audio90.wav, retention-days: 1}
+  join:
+    needs: [part, audio]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install -q cryptography numpy pillow imageio-ffmpeg && sudo ln -sf $(python -c "import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())") /usr/local/bin/ffmpeg
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - uses: actions/download-artifact@v4
+        with: {pattern: "fr-*", path: frames90, merge-multiple: true}
+      - uses: actions/download-artifact@v4
+        with: {name: audio90, path: .}
+      - run: python studio/comp90.py join frames90 audio90.wav "${{ inputs.tag }}.mp4"
+      - name: Publish
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          gh release upload samples "${{ inputs.tag }}.mp4" --clobber
+          echo "https://github.com/useforyoutube/anime-studio/releases/download/samples/${{ inputs.tag }}.mp4"
