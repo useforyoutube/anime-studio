@@ -25,7 +25,7 @@ jobs:
       - run: python vault/boot.py open
         env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
       - run: python studio/render.py ${{ matrix.job }} 17 frames ${{ inputs.width }} ${{ inputs.height }}
-        env: {ONLY_SHOTS: "${{ inputs.only_shots }}"}
+        env: {ONLY_SHOTS: "${{ inputs.only_shots }}", OMP_NUM_THREADS: "1", OPENBLAS_NUM_THREADS: "1", MKL_NUM_THREADS: "1"}
       - uses: actions/upload-artifact@v4
         with: {name: "frames-${{ matrix.job }}", path: frames, retention-days: 2, compression-level: 0}
   audio:
