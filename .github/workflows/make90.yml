@@ -1,0 +1,63 @@
+name: Make 90s sample
+on:
+  workflow_dispatch:
+    inputs:
+      tag: {default: "pehla-vaar-90s"}
+      steps: {default: "20"}
+      machines: {default: "18"}
+permissions:
+  contents: write
+jobs:
+  draw:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        m: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install -q torch --index-url https://download.pytorch.org/whl/cpu && pip install -q cryptography numpy pillow diffusers transformers accelerate peft safetensors
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: curl -sL https://github.com/useforyoutube/anime-studio/releases/download/samples/arjun-ref.png -o ref.png
+      - name: Draw (stops after 40 min; whatever is finished is kept)
+        run: python studio/ai90.py ${{ matrix.m }} ${{ inputs.machines }} drawings
+        timeout-minutes: 40
+        continue-on-error: true
+        env: {STEPS: "${{ inputs.steps }}"}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: "dr-${{ matrix.m }}", path: drawings, retention-days: 3, if-no-files-found: ignore}
+  compose:
+    needs: draw
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-core libraqm0 libfribidi0 > /dev/null
+      - run: pip install -q cryptography numpy pillow edge-tts imageio-ffmpeg && sudo ln -sf $(python -c "import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())") /usr/local/bin/ffmpeg
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - uses: actions/download-artifact@v4
+        with: {pattern: "dr-*", path: drawings, merge-multiple: true}
+        continue-on-error: true
+      - run: ls drawings | wc -l
+      - run: python studio/comp90.py drawings "${{ inputs.tag }}.mp4"
+      - name: Contact sheet of the drawings
+        run: |
+          python - <<'PY'
+          import os
+          from PIL import Image
+          fs = sorted(f for f in os.listdir("drawings") if f.endswith(".png"))
+          cols = 6; w, h = 320, 180
+          s = Image.new("RGB", (cols * w, ((len(fs) + cols - 1) // cols) * h))
+          for i, f in enumerate(fs):
+              s.paste(Image.open(os.path.join("drawings", f)).convert("RGB").resize((w, h)), ((i % cols) * w, (i // cols) * h))
+          s.save("${{ inputs.tag }}-drawings.jpg", quality=90)
+          PY
+      - name: Publish
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          gh release upload samples "${{ inputs.tag }}.mp4" "${{ inputs.tag }}-drawings.jpg" --clobber
+          echo "https://github.com/useforyoutube/anime-studio/releases/download/samples/${{ inputs.tag }}.mp4"
