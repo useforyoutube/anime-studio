@@ -1,0 +1,43 @@
+name: Character sheet
+on:
+  workflow_dispatch:
+    inputs:
+      tag: {default: "arjun-sheet-1"}
+      ref_url: {default: ""}
+      ref_scale: {default: "0.6"}
+      seed: {default: "2026"}
+permissions:
+  contents: write
+jobs:
+  draw:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        job: [0, 1, 2, 3, 4, 5]
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install -q torch --index-url https://download.pytorch.org/whl/cpu && pip install -q cryptography numpy pillow diffusers transformers accelerate peft safetensors
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: if [ -n "${{ inputs.ref_url }}" ]; then curl -sL "${{ inputs.ref_url }}" -o ref.png; fi
+      - run: python studio/charsheet.py ${{ matrix.job }} 6 views
+        env: {REF: "ref.png", REF_SCALE: "${{ inputs.ref_scale }}", SEED: "${{ inputs.seed }}"}
+      - uses: actions/upload-artifact@v4
+        with: {name: "view-${{ matrix.job }}", path: views, retention-days: 3}
+  sheet:
+    needs: draw
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get install -y -qq fonts-noto-core libraqm0 > /dev/null 2>&1 || true
+      - run: pip install -q cryptography numpy pillow
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - uses: actions/download-artifact@v4
+        with: {pattern: "view-*", path: views, merge-multiple: true}
+      - run: python studio/sheet_join.py views "${{ inputs.tag }}.png" "Arjun - character design (${{ inputs.tag }})"
+      - name: Publish
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          gh release upload samples "${{ inputs.tag }}.png" --clobber
+          for f in views/*.png; do cp "$f" "${{ inputs.tag }}-$(basename $f)"; gh release upload samples "${{ inputs.tag }}-$(basename $f)" --clobber; done
