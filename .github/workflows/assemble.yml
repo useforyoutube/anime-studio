@@ -1,0 +1,28 @@
+name: Assemble from a render run
+on:
+  workflow_dispatch:
+    inputs:
+      run_id: {required: true}
+      tag: {default: "ep1"}
+permissions:
+  contents: write
+  actions: read
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install -q cryptography numpy pillow imageio-ffmpeg && sudo ln -sf $(python -c "import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())") /usr/local/bin/ffmpeg
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - uses: actions/download-artifact@v4
+        with: {pattern: "frames-*", path: frames, merge-multiple: true, run-id: "${{ inputs.run_id }}", github-token: "${{ github.token }}"}
+      - uses: actions/download-artifact@v4
+        with: {name: audio, path: ., run-id: "${{ inputs.run_id }}", github-token: "${{ github.token }}"}
+      - run: ls frames | wc -l
+      - run: python studio/assemble.py frames episode.wav "${{ inputs.tag }}.mp4"
+      - name: Publish
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          gh release view samples >/dev/null 2>&1 || gh release create samples --title "Samples" --notes "Test renders"
+          gh release upload samples "${{ inputs.tag }}.mp4" --clobber
