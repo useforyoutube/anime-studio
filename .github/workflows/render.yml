@@ -15,16 +15,16 @@ jobs:
   render:
     runs-on: ubuntu-latest
     strategy:
-      max-parallel: 14
+      max-parallel: 17
       matrix:
-        job: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+        job: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-core libraqm0 libfribidi0 > /dev/null
       - run: pip install -q cryptography numpy pillow
       - run: python vault/boot.py open
         env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
-      - run: python studio/render.py ${{ matrix.job }} 14 frames ${{ inputs.width }} ${{ inputs.height }}
+      - run: python studio/render.py ${{ matrix.job }} 17 frames ${{ inputs.width }} ${{ inputs.height }}
         env: {ONLY_SHOTS: "${{ inputs.only_shots }}"}
       - uses: actions/upload-artifact@v4
         with: {name: "frames-${{ matrix.job }}", path: frames, retention-days: 2, compression-level: 0}
