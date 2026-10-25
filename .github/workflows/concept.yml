@@ -1,0 +1,39 @@
+name: Concept look test
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  draw:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        k: [0, 1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with: {path: ~/.cache/huggingface, key: "hf-concept-${{ matrix.k }}-v1"}
+      - run: pip install -q torch --index-url https://download.pytorch.org/whl/cpu && pip install -q cryptography numpy pillow diffusers transformers accelerate peft safetensors
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: python studio/concept.py draw ${{ matrix.k }} cdraw
+      - uses: actions/upload-artifact@v4
+        with: {name: "cd-${{ matrix.k }}", path: cdraw, retention-days: 2}
+  compose:
+    needs: draw
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-core libraqm0 libfribidi0 fonts-dejavu-core > /dev/null
+      - run: pip install -q cryptography numpy pillow edge-tts imageio-ffmpeg && sudo ln -sf $(python -c "import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())") /usr/local/bin/ffmpeg
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - uses: actions/download-artifact@v4
+        with: {pattern: "cd-*", path: cdraw, merge-multiple: true}
+      - run: python studio/concept.py compose cdraw concept-test.mp4
+      - name: Publish
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          python -c "from PIL import Image;ims=[Image.open(f'cdraw/c{i}.png').convert('RGB').resize((512,288)) for i in range(1,6)];s=Image.new('RGB',(512*5,288));[s.paste(im,(i*512,0)) for i,im in enumerate(ims)];s.save('concept-test-drawings.jpg')"
+          gh release upload samples concept-test.mp4 concept-test-drawings.jpg --clobber
