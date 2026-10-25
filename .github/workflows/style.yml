@@ -1,0 +1,42 @@
+name: Style test
+on:
+  workflow_dispatch:
+    inputs:
+      script: {default: "studio/style1.py"}
+      join: {default: "studio/style1_join.py"}
+      tag: {default: "style1"}
+permissions:
+  contents: write
+jobs:
+  paint:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        job: [0, 1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get install -y -qq fonts-noto-core libraqm0 > /dev/null 2>&1 || true
+      - run: pip install -q torch --index-url https://download.pytorch.org/whl/cpu && pip install -q cryptography numpy pillow diffusers transformers accelerate peft safetensors
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: python ${{ inputs.script }} ${{ matrix.job }} 7 frames
+      - uses: actions/upload-artifact@v4
+        with: {name: "st-${{ matrix.job }}", path: frames, retention-days: 2, compression-level: 0}
+  join:
+    needs: paint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install -q cryptography numpy pillow imageio-ffmpeg && sudo ln -sf $(python -c "import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())") /usr/local/bin/ffmpeg
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - uses: actions/download-artifact@v4
+        with: {pattern: "st-*", path: frames, merge-multiple: true}
+      - run: mkdir -p stills && cp frames/*_still.jpg stills/ && python ${{ inputs.join }} frames
+      - name: Publish
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          mv style1.mp4 "${{ inputs.tag }}.mp4"
+          gh release upload samples "${{ inputs.tag }}.mp4" --clobber
+      - uses: actions/upload-artifact@v4
+        with: {name: stills, path: stills, retention-days: 2}
