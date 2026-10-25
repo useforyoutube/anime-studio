@@ -1,0 +1,12 @@
+name: ISPC benchmark
+on: workflow_dispatch
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install -q torch --index-url https://download.pytorch.org/whl/cpu && pip install -q cryptography numpy pillow
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: lscpu | grep -E "Model name|Flags" | cut -c1-200
+      - run: python studio/ispc_ops.py
