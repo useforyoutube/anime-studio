@@ -1,0 +1,20 @@
+name: Preview
+on:
+  workflow_dispatch:
+    inputs:
+      script: {default: "studio/preview2d.py"}
+concurrency:
+  group: preview
+  cancel-in-progress: true
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get install -y -qq fonts-noto-core libraqm0 > /dev/null 2>&1 || true
+      - run: pip install -q cryptography numpy pillow
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: mkdir -p out && python ${{ inputs.script }} out/preview.png
+      - uses: actions/upload-artifact@v4
+        with: {name: preview, path: out, retention-days: 1}
