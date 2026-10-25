@@ -3,8 +3,8 @@ on:
   workflow_dispatch:
     inputs:
       tag: {default: "am1"}
-      sat: {default: "0.85"}
-      gamma: {default: "0.92"}
+      sat: {default: "1.25"}
+      gamma: {default: "1.15"}
 permissions:
   contents: write
 jobs:
@@ -35,7 +35,7 @@ jobs:
         with: {name: frames, path: .}
       - run: mkdir -p fr && cd fr && python -c "import zipfile;zipfile.ZipFile('../frames.zip').extractall('.')" && ls | wc -l
       - run: python studio/anim_comp.py fr "${{ inputs.tag }}.mp4"
-        env: {SAT: "${{ inputs.sat }}", GAMMA: "${{ inputs.gamma }}", ISPC: "0"}
+        env: {SAT: "${{ inputs.sat }}", GAMMA: "${{ inputs.gamma }}", ISPC: "0", RAIN_N: "90", SPEED_N: "35", HLINE_N: "18", FLASH: "0.5"}
       - run: python studio/score.py "${{ inputs.tag }}.mp4" | tee score.txt
       - name: Publish
         env: {GH_TOKEN: "${{ github.token }}"}
