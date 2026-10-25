@@ -1,0 +1,24 @@
+name: Finish v3 (audio + join pieces)
+on:
+  workflow_dispatch:
+    inputs:
+      tag: {default: "pv3"}
+permissions:
+  contents: write
+jobs:
+  finish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install -q cryptography numpy pillow edge-tts imageio-ffmpeg && sudo ln -sf $(python -c "import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())") /usr/local/bin/ffmpeg
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: python studio/comp90.py audio
+      - run: python studio/finish3.py "${{ inputs.tag }}" 70
+        env: {GH_TOKEN: "${{ github.token }}"}
+      - name: Publish
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          gh release upload samples "${{ inputs.tag }}.mp4" --clobber
+          echo "https://github.com/useforyoutube/anime-studio/releases/download/samples/${{ inputs.tag }}.mp4"
