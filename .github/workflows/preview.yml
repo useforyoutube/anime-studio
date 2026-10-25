@@ -3,6 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       script: {default: "studio/preview2d.py"}
+      pick: {default: ""}
 concurrency:
   group: preview
   cancel-in-progress: true
@@ -16,5 +17,6 @@ jobs:
       - run: python vault/boot.py open
         env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
       - run: mkdir -p out && python ${{ inputs.script }} out/preview.png
+        env: {DEBUG2D: "1", PICK: "${{ inputs.pick }}"}
       - uses: actions/upload-artifact@v4
         with: {name: preview, path: out, retention-days: 1}
