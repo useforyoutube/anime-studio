@@ -18,6 +18,7 @@ jobs:
       - run: python vault/boot.py open
         env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
       - run: python studio/concept.py draw ${{ matrix.k }} cdraw
+        env: {GH_TOKEN: "${{ github.token }}"}
       - uses: actions/upload-artifact@v4
         with: {name: "cd-${{ matrix.k }}", path: cdraw, retention-days: 2}
   compose:
