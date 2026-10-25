@@ -1,0 +1,80 @@
+name: Episode 1 motion-manhwa (10 min, GitHub only)
+on:
+  workflow_dispatch:
+    inputs:
+      tag: {default: "ep1m"}
+permissions:
+  contents: write
+jobs:
+  draw:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        k: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with: {path: ~/.cache/huggingface, key: "hf-ep1m-draw-v1"}
+      - run: pip install -q torch --index-url https://download.pytorch.org/whl/cpu && pip install -q cryptography numpy pillow diffusers transformers accelerate peft safetensors
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: python studio/ep1m.py draw ${{ matrix.k }} 12 fr
+        env: {GH_TOKEN: "${{ github.token }}"}
+      - uses: actions/upload-artifact@v4
+        with: {name: "dr-${{ matrix.k }}", path: fr, retention-days: 3}
+  compose:
+    needs: draw
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        k: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with: {path: ~/.cache/huggingface, key: "hf-ep1m-v1"}
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-core fonts-dejavu-core libraqm0 libfribidi0 > /dev/null
+      - run: pip install -q torch --index-url https://download.pytorch.org/whl/cpu && pip install -q cryptography numpy pillow transformers opencv-python-headless imageio-ffmpeg && sudo ln -sf $(python -c "import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())") /usr/local/bin/ffmpeg
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - uses: actions/download-artifact@v4
+        with: {pattern: "dr-*", path: fr, merge-multiple: true}
+      - run: ls fr | wc -l
+      - run: python studio/ep1m.py part ${{ matrix.k }} 12 fr
+      - uses: actions/upload-artifact@v4
+        with: {name: "seg-${{ matrix.k }}", path: segs, retention-days: 3, compression-level: 0}
+  join:
+    needs: compose
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-core fonts-dejavu-core > /dev/null
+      - run: pip install -q cryptography numpy pillow edge-tts opencv-python-headless imageio-ffmpeg && sudo ln -sf $(python -c "import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())") /usr/local/bin/ffmpeg
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - uses: actions/download-artifact@v4
+        with: {pattern: "seg-*", path: segs, merge-multiple: true}
+      - uses: actions/download-artifact@v4
+        with: {pattern: "dr-*", path: fr, merge-multiple: true}
+      - run: ls segs | wc -l
+      - run: python studio/ep1m.py join "${{ inputs.tag }}.mp4"
+      - run: python studio/score.py "${{ inputs.tag }}.mp4" | tee score.txt || true
+      - name: Publish
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          python - <<'PY'
+          import os
+          from PIL import Image
+          fs = sorted(os.listdir("fr"))
+          pick = fs[::max(1, len(fs) // 30)][:30]
+          w, h = 384, 216
+          s = Image.new("RGB", (6 * w, 5 * h))
+          for i, f in enumerate(pick):
+              s.paste(Image.open("fr/" + f).convert("RGB").resize((w, h)), ((i % 6) * w, (i // 6) * h))
+          s.save("${{ inputs.tag }}-drawings.jpg", quality=86)
+          PY
+          cp score.txt "${{ inputs.tag }}-score.txt" || true
+          gh release upload samples "${{ inputs.tag }}.mp4" "${{ inputs.tag }}-drawings.jpg" "${{ inputs.tag }}-score.txt" --clobber
