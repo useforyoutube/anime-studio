@@ -1,0 +1,59 @@
+name: Render episode
+on:
+  workflow_dispatch:
+    inputs:
+      width: {default: "960"}
+      height: {default: "540"}
+      only_shots: {default: ""}
+      tag: {default: "ep1"}
+permissions:
+  contents: write
+concurrency:
+  group: render
+  cancel-in-progress: true
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 14
+      matrix:
+        job: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-core libraqm0 libfribidi0 > /dev/null
+      - run: pip install -q cryptography numpy pillow
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: python studio/render.py ${{ matrix.job }} 14 frames ${{ inputs.width }} ${{ inputs.height }}
+        env: {ONLY_SHOTS: "${{ inputs.only_shots }}"}
+      - uses: actions/upload-artifact@v4
+        with: {name: "frames-${{ matrix.job }}", path: frames, retention-days: 2, compression-level: 0}
+  audio:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install -q cryptography numpy pillow edge-tts
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: python studio/audio.py episode.wav work
+      - uses: actions/upload-artifact@v4
+        with: {name: audio, path: episode.wav, retention-days: 2}
+  assemble:
+    needs: [render, audio]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install -q cryptography numpy pillow
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - uses: actions/download-artifact@v4
+        with: {pattern: "frames-*", path: frames, merge-multiple: true}
+      - uses: actions/download-artifact@v4
+        with: {name: audio, path: .}
+      - run: python studio/assemble.py frames episode.wav "${{ inputs.tag }}.mp4"
+      - name: Publish
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          gh release view samples >/dev/null 2>&1 || gh release create samples --title "Samples" --notes "Test renders"
+          gh release upload samples "${{ inputs.tag }}.mp4" --clobber
+          echo "https://github.com/useforyoutube/anime-studio/releases/download/samples/${{ inputs.tag }}.mp4"

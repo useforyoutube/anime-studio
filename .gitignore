@@ -1,0 +1,5 @@
+studio/
+__pycache__/
+frames/
+work/
+*.mp4
