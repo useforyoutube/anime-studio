@@ -1,0 +1,43 @@
+name: Make 90s sample (fast queue)
+on:
+  workflow_dispatch:
+    inputs:
+      tag: {default: "pehla-vaar-v2"}
+      steps: {default: "14"}
+permissions:
+  contents: write
+jobs:
+  draw:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        m: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install -q torch --index-url https://download.pytorch.org/whl/cpu && pip install -q cryptography numpy pillow diffusers transformers accelerate peft safetensors
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: curl -sL https://github.com/useforyoutube/anime-studio/releases/download/samples/arjun-ref.png -o ref.png
+      - run: python studio/queue90.py drawings
+        timeout-minutes: 50
+        continue-on-error: true
+        env: {GH_TOKEN: "${{ github.token }}", RUN_ID: "${{ github.run_id }}", TAG: "${{ inputs.tag }}", STEPS: "${{ inputs.steps }}"}
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-core libraqm0 libfribidi0 > /dev/null
+      - run: pip install -q cryptography numpy pillow edge-tts imageio-ffmpeg && sudo ln -sf $(python -c "import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())") /usr/local/bin/ffmpeg
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: python studio/collect90.py "${{ inputs.tag }}" "${{ github.run_id }}" 55
+        env: {GH_TOKEN: "${{ github.token }}"}
+      - run: python studio/comp90.py drawings "${{ inputs.tag }}.mp4"
+      - name: Publish
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          gh release upload samples "${{ inputs.tag }}.mp4" --clobber
+          echo "https://github.com/useforyoutube/anime-studio/releases/download/samples/${{ inputs.tag }}.mp4"
