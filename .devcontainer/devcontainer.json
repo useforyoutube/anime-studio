@@ -1,0 +1,7 @@
+{
+  "name": "Shadow Hunter anime studio",
+  "build": {"dockerfile": "Dockerfile"},
+  "postCreateCommand": "python vault/boot.py open || echo 'set the REPO_KEY Codespaces secret to open the project files'",
+  "secrets": {"REPO_KEY": {"description": "opens the encrypted project files (vault.enc)"}},
+  "customizations": {"vscode": {"extensions": ["ms-python.python"]}}
+}

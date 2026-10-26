@@ -1,0 +1,25 @@
+name: Check a video against the reference (both checkers)
+on:
+  workflow_dispatch:
+    inputs:
+      video: {default: "ep1m.mp4", description: "file name in the samples release"}
+permissions:
+  contents: write
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install -q cryptography opencv-python-headless numpy pandas
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
+      - run: mkdir -p media && curl -sL -o "media/${{ inputs.video }}" "https://github.com/useforyoutube/anime-studio/releases/download/samples/${{ inputs.video }}" && ls -la media
+      - run: python studio/shadow/tools/check_animation.py "media/${{ inputs.video }}" | tee anim.txt
+      - run: python studio/shadow/tools/check_against_reference.py "media/${{ inputs.video }}" | tee ref.txt
+      - name: Publish scores
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          n="${{ inputs.video }}"; n="${n%.mp4}"
+          cat anim.txt ref.txt > "$n-checks.txt"
+          gh release upload samples "$n-checks.txt" --clobber
