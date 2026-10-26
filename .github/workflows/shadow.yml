@@ -1,0 +1,95 @@
+name: Shadow Hunter episode (pictures -> sound -> shots -> join -> both checkers)
+on:
+  workflow_dispatch:
+    inputs:
+      upto: {default: "60", description: "seconds to make (60 = first minute; 9999 = whole episode)"}
+      tag: {default: "shadow60"}
+permissions:
+  contents: write
+jobs:
+  assets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        k: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with: {path: ~/.cache/huggingface, key: "hf-kit-v1"}
+      - run: pip install -q torch --index-url https://download.pytorch.org/whl/cpu && pip install -q cryptography numpy pillow diffusers transformers accelerate peft safetensors opencv-python-headless
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: python studio/shadow/render.py assets ${{ matrix.k }} 14 assets ${{ inputs.upto }}
+        env: {GH_TOKEN: "${{ github.token }}"}
+  audio:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
+      - run: pip install -q cryptography numpy scipy edge-tts pillow
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: python studio/shadow/render.py audio aud ${{ inputs.upto }}
+      - uses: actions/upload-artifact@v4
+        with: {name: aud, path: "aud/mix.wav\naud/lines.json", retention-days: 3}
+  frames:
+    needs: [assets, audio]
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        k: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-noto-core fonts-dejavu-core libraqm0 libfribidi0 > /dev/null
+      - run: pip install -q cryptography numpy pillow opencv-python-headless scipy
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - uses: actions/download-artifact@v4
+        with: {name: aud, path: aud}
+      - name: Pictures + character kit from the release
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          mkdir -p assets kit
+          gh release download samples --repo useforyoutube/anime-studio -p 'shadow-a-*' -D assets --clobber || true
+          cd assets && for f in shadow-a-*; do [ -e "$f" ] && mv "$f" "${f#shadow-a-}"; done; cd ..
+          gh release download samples --repo useforyoutube/anime-studio -p 'shadow-kit.zip' --clobber && (cd kit && unzip -q ../shadow-kit.zip) || echo "no kit zip yet"
+          ls assets | wc -l
+      - run: python studio/shadow/render.py frames ${{ matrix.k }} 12 assets aud segs ${{ inputs.upto }}
+      - uses: actions/upload-artifact@v4
+        with: {name: "seg-${{ matrix.k }}", path: segs, retention-days: 3, compression-level: 0}
+  join:
+    needs: frames
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
+      - run: pip install -q cryptography numpy pandas pillow opencv-python-headless scipy
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - uses: actions/download-artifact@v4
+        with: {pattern: "seg-*", path: segs, merge-multiple: true}
+      - uses: actions/download-artifact@v4
+        with: {name: aud, path: aud}
+      - run: python studio/shadow/render.py join segs aud "${{ inputs.tag }}.mp4" ${{ inputs.upto }}
+      - run: python studio/shadow/tools/check_animation.py "${{ inputs.tag }}.mp4" | tee anim.txt
+      - run: python studio/shadow/tools/check_against_reference.py "${{ inputs.tag }}.mp4" | tee ref.txt
+      - name: Contact sheet (1 frame a second) + publish
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          mkdir -p cs && ffmpeg -loglevel error -i "${{ inputs.tag }}.mp4" -vf fps=1,scale=320:180 cs/%04d.jpg
+          python - <<'PY'
+          import os
+          from PIL import Image
+          fs = sorted(os.listdir("cs"))[:120]
+          cols = 10
+          s = Image.new("RGB", (cols * 320, ((len(fs) + cols - 1) // cols) * 180))
+          for i, f in enumerate(fs):
+              s.paste(Image.open("cs/" + f), ((i % cols) * 320, (i // cols) * 180))
+          s.save("${{ inputs.tag }}-sheet.jpg", quality=85)
+          PY
+          cat anim.txt ref.txt > "${{ inputs.tag }}-checks.txt"
+          gh release upload samples "${{ inputs.tag }}.mp4" "${{ inputs.tag }}-checks.txt" "${{ inputs.tag }}-sheet.jpg" --clobber
