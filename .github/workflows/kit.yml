@@ -1,0 +1,63 @@
+name: Shadow Hunter character kits
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  refs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        k: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with: {path: ~/.cache/huggingface, key: "hf-kit-v1"}
+      - run: pip install -q torch --index-url https://download.pytorch.org/whl/cpu && pip install -q cryptography numpy pillow diffusers transformers accelerate peft safetensors opencv-python-headless
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: python studio/shadow/kit.py refs ${{ matrix.k }} 10 kitsrc
+        env: {GH_TOKEN: "${{ github.token }}"}
+  items:
+    needs: refs
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        k: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with: {path: ~/.cache/huggingface, key: "hf-kit-v1"}
+      - run: pip install -q torch --index-url https://download.pytorch.org/whl/cpu && pip install -q cryptography numpy pillow diffusers transformers accelerate peft safetensors opencv-python-headless
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: python studio/shadow/kit.py items ${{ matrix.k }} 14 kitsrc
+        env: {GH_TOKEN: "${{ github.token }}"}
+  finish:
+    needs: items
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-core fonts-dejavu-core libraqm0 libfribidi0 > /dev/null
+      - run: pip install -q cryptography numpy pillow opencv-python-headless requests
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - name: Download every kit picture from the release
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          mkdir -p kitsrc && cd kitsrc
+          gh release view samples --repo useforyoutube/anime-studio --json assets --jq '.assets[].name' | grep '^shadow-kit-' | sed 's/^shadow-kit-//' > ../names.txt
+          wc -l ../names.txt
+          gh release download samples --repo useforyoutube/anime-studio -p 'shadow-kit-*' --clobber
+          for f in shadow-kit-*; do mv "$f" "${f#shadow-kit-}"; done
+      - run: python studio/shadow/kit.py finish kitsrc kit
+      - name: Publish kit (zip + contact sheets)
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          cd kit && zip -qr ../shadow-kit.zip . && cd ..
+          for f in kit/*_kit.jpg; do cp "$f" "shadow-sheet-$(basename $f)"; done
+          gh release upload samples shadow-kit.zip shadow-sheet-*.jpg --clobber
