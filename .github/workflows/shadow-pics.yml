@@ -1,0 +1,50 @@
+name: Shadow Hunter pictures (draws until every picture exists, then starts the full episode)
+on:
+  workflow_dispatch:
+    inputs:
+      round: {default: "1", description: "pass number (each pass is up to ~5.5 h; stops after 8)"}
+      upto: {default: "9999"}
+      tag: {default: "shadow-ep1"}
+permissions:
+  contents: write
+  actions: write
+jobs:
+  assets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    strategy:
+      fail-fast: false
+      matrix:
+        k: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with: {path: ~/.cache/huggingface, key: "hf-kit-v1"}
+      - run: pip install -q torch --index-url https://download.pytorch.org/whl/cpu && pip install -q cryptography numpy pillow diffusers transformers accelerate peft safetensors opencv-python-headless
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: python studio/shadow/render.py assets ${{ matrix.k }} 20 assets ${{ inputs.upto }}
+        env: {GH_TOKEN: "${{ github.token }}"}
+  next:
+    needs: assets
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install -q cryptography numpy pillow opencv-python-headless scipy
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - name: More pictures, or the full episode
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          python studio/shadow/render.py missing ${{ inputs.upto }}
+          M=$(cat missing.txt); R=${{ inputs.round }}
+          if [ "$M" -gt 0 ] && [ "$R" -lt 8 ]; then
+            gh workflow run shadow-pics.yml --repo useforyoutube/anime-studio -f round=$((R + 1)) -f upto=${{ inputs.upto }} -f tag=${{ inputs.tag }}
+            echo "pass $R done, $M pictures left - pass $((R + 1)) started"
+          elif [ "$M" -eq 0 ]; then
+            gh workflow run shadow.yml --repo useforyoutube/anime-studio -f upto=${{ inputs.upto }} -f tag=${{ inputs.tag }}
+            echo "all pictures drawn - the full episode render started"
+          else
+            echo "still $M pictures missing after $R passes - stopping"; exit 1
+          fi

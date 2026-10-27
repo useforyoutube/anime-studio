@@ -55,6 +55,7 @@ jobs:
         run: |
           mkdir -p assets kit
           gh release download samples --repo useforyoutube/anime-studio -p 'shadow-a-*' -D assets --clobber || true
+          gh release download shadow-pics --repo useforyoutube/anime-studio -p 'shadow-a-*' -D assets --clobber || true
           cd assets && for f in shadow-a-*; do [ -e "$f" ] && mv "$f" "${f#shadow-a-}"; done; cd ..
           gh release download samples --repo useforyoutube/anime-studio -p 'shadow-kit.zip' --clobber && (cd kit && unzip -q ../shadow-kit.zip) || echo "no kit zip yet"
           ls assets | wc -l
@@ -84,7 +85,8 @@ jobs:
           python - <<'PY'
           import os
           from PIL import Image
-          fs = sorted(os.listdir("cs"))[:120]
+          fs = sorted(os.listdir("cs"))
+          fs = fs[::max(1, -(-len(fs) // 120))][:120]           # a long episode: evenly spread frames
           cols = 10
           s = Image.new("RGB", (cols * 320, ((len(fs) + cols - 1) // cols) * 180))
           for i, f in enumerate(fs):
