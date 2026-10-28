@@ -45,21 +45,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-noto-core fonts-dejavu-core libraqm0 libfribidi0 > /dev/null
-      - run: pip install -q cryptography numpy pillow opencv-python-headless scipy
+      - run: pip install -q cryptography numpy pillow opencv-python-headless scipy rembg onnxruntime
       - run: python vault/boot.py open
         env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
       - uses: actions/download-artifact@v4
         with: {name: aud, path: aud}
-      - name: Pictures + character kit from the release
+      - name: Background paintings + the approved character kit (layers)
         env: {GH_TOKEN: "${{ github.token }}"}
         run: |
-          mkdir -p assets kit
-          gh release download samples --repo useforyoutube/anime-studio -p 'shadow-a-*' -D assets --clobber || true
-          gh release download shadow-pics --repo useforyoutube/anime-studio -p 'shadow-a-*' -D assets --clobber || true
-          cd assets && for f in shadow-a-*; do [ -e "$f" ] && mv "$f" "${f#shadow-a-}"; done; cd ..
-          gh release download samples --repo useforyoutube/anime-studio -p 'shadow-kit.zip' --clobber && (cd kit && unzip -q ../shadow-kit.zip) || echo "no kit zip yet"
-          ls assets | wc -l
-      - run: python studio/shadow/render.py frames ${{ matrix.k }} 12 assets aud segs ${{ inputs.upto }}
+          mkdir -p bg characters
+          gh release download shadow-pics --repo useforyoutube/anime-studio -p 'sh2-*' -D bg --clobber || true
+          cd bg && for f in sh2-*; do [ -e "$f" ] && mv "$f" "${f#sh2-}"; done; cd ..
+          gh release download samples --repo useforyoutube/anime-studio -p 'shadow-kit.zip' --clobber
+          unzip -q shadow-kit.zip -d characters
+          for d in characters/*/; do [ -d "$d/arjun_hoodie" ] && mv "$d"* characters/; done
+          ls bg | wc -l; ls characters; ls characters/arjun_hoodie | head
+      - run: python studio/shadow/render.py frames ${{ matrix.k }} 12 bg aud segs ${{ inputs.upto }}
       - uses: actions/upload-artifact@v4
         with: {name: "seg-${{ matrix.k }}", path: segs, retention-days: 3, compression-level: 0}
   join:
@@ -76,6 +77,13 @@ jobs:
       - uses: actions/download-artifact@v4
         with: {name: aud, path: aud}
       - run: python studio/shadow/render.py join segs aud "${{ inputs.tag }}.mp4" ${{ inputs.upto }}
+      - name: Timesheets (guide section 5) for this part
+        run: |
+          gh release download samples --repo useforyoutube/anime-studio -p 'shadow-kit.zip' --clobber && mkdir -p characters && unzip -q shadow-kit.zip -d characters
+          for d in characters/*/; do [ -d "$d/arjun_hoodie" ] && mv "$d"* characters/; done
+          python studio/shadow/render.py timesheets timesheets ${{ inputs.upto }} aud
+          zip -qr "${{ inputs.tag }}-timesheets.zip" timesheets
+        env: {GH_TOKEN: "${{ github.token }}"}
       - run: python studio/shadow/tools/check_animation.py "${{ inputs.tag }}.mp4" | tee anim.txt
       - run: python studio/shadow/tools/check_against_reference.py "${{ inputs.tag }}.mp4" | tee ref.txt
       - name: Contact sheet (1 frame a second) + publish
@@ -94,4 +102,4 @@ jobs:
           s.save("${{ inputs.tag }}-sheet.jpg", quality=85)
           PY
           cat anim.txt ref.txt > "${{ inputs.tag }}-checks.txt"
-          gh release upload samples "${{ inputs.tag }}.mp4" "${{ inputs.tag }}-checks.txt" "${{ inputs.tag }}-sheet.jpg" --clobber
+          gh release upload samples "${{ inputs.tag }}.mp4" "${{ inputs.tag }}-checks.txt" "${{ inputs.tag }}-sheet.jpg" "${{ inputs.tag }}-timesheets.zip" --clobber
