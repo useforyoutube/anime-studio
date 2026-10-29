@@ -54,11 +54,13 @@ jobs:
         env: {GH_TOKEN: "${{ github.token }}"}
         run: |
           mkdir -p bg characters
-          gh release download shadow-pics --repo useforyoutube/anime-studio -p 'sh2-*' -D bg --clobber || true
-          cd bg && for f in sh2-*; do [ -e "$f" ] && mv "$f" "${f#sh2-}"; done; cd ..
+          gh release download shadow-pics --repo useforyoutube/anime-studio -p 'sh3-*' -D bg --clobber || true
+          cd bg && for f in sh3-*; do [ -e "$f" ] && mv "$f" "${f#sh3-}"; done; cd ..
           gh release download samples --repo useforyoutube/anime-studio -p 'shadow-kit.zip' --clobber
           unzip -q shadow-kit.zip -d characters
           for d in characters/*/; do [ -d "$d/arjun_hoodie" ] && mv "$d"* characters/; done
+          gh release download samples --repo useforyoutube/anime-studio -p 'shadow-kit-arjun_hoodie-wk?.png' -D wk --clobber || true
+          for f in wk/shadow-kit-arjun_hoodie-wk?.png; do [ -e "$f" ] && mv "$f" "characters/arjun_hoodie/poses/${f#wk/shadow-kit-arjun_hoodie-}"; done
           ls bg | wc -l; ls characters; ls characters/arjun_hoodie | head
       - run: python studio/shadow/render.py frames ${{ matrix.k }} 12 bg aud segs ${{ inputs.upto }}
       - uses: actions/upload-artifact@v4
@@ -81,6 +83,8 @@ jobs:
         run: |
           gh release download samples --repo useforyoutube/anime-studio -p 'shadow-kit.zip' --clobber && mkdir -p characters && unzip -q shadow-kit.zip -d characters
           for d in characters/*/; do [ -d "$d/arjun_hoodie" ] && mv "$d"* characters/; done
+          gh release download samples --repo useforyoutube/anime-studio -p 'shadow-kit-arjun_hoodie-wk?.png' -D wk --clobber || true
+          for f in wk/shadow-kit-arjun_hoodie-wk?.png; do [ -e "$f" ] && mv "$f" "characters/arjun_hoodie/poses/${f#wk/shadow-kit-arjun_hoodie-}"; done
           python studio/shadow/render.py timesheets timesheets ${{ inputs.upto }} aud
           zip -qr "${{ inputs.tag }}-timesheets.zip" timesheets
         env: {GH_TOKEN: "${{ github.token }}"}
