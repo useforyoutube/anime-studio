@@ -1,0 +1,22 @@
+name: Shadow Hunter movement test (AI image-to-video on the free processor)
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  clip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        shot: [a, b, c]
+    steps:
+      - uses: actions/checkout@v4
+      - name: free disk for the 30 GB model
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost && df -h /
+      - run: pip install -q torch --index-url https://download.pytorch.org/whl/cpu && pip install -q -U cryptography numpy pillow diffusers transformers accelerate safetensors sentencepiece ftfy opencv-python-headless
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: python studio/shadow/move_test.py ${{ matrix.shot }} movetest
+      - run: gh release upload samples movetest/shadow-move-test-${{ matrix.shot }}.mp4 --repo useforyoutube/anime-studio --clobber
+        env: {GH_TOKEN: "${{ github.token }}"}
