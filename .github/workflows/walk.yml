@@ -1,0 +1,31 @@
+name: Shadow Hunter walk cycle (8 drawings, same character)
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  draw:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        k: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with: {path: ~/.cache/huggingface, key: "hf-walk-v1"}
+      - run: pip install -q torch --index-url https://download.pytorch.org/whl/cpu && pip install -q cryptography numpy pillow diffusers transformers accelerate peft safetensors opencv-python-headless
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: python studio/shadow/walk.py draw ${{ matrix.k }} 8 walksrc
+        env: {GH_TOKEN: "${{ github.token }}"}
+  cut:
+    needs: draw
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install -q cryptography numpy pillow opencv-python-headless rembg onnxruntime
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: python studio/shadow/walk.py cut walksrc
+        env: {GH_TOKEN: "${{ github.token }}"}
