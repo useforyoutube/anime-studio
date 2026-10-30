@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
         with: {path: ~/.cache/huggingface, key: "hf-sheets-v1"}
-      - run: pip install -q torch --index-url https://download.pytorch.org/whl/cpu && pip install -q cryptography numpy pillow "diffusers==0.35.2" "transformers==4.57.1" "accelerate==1.10.1" peft safetensors opencv-python-headless rembg onnxruntime
+      - run: pip install -q torch --index-url https://download.pytorch.org/whl/cpu && pip install -q cryptography numpy pillow "diffusers==0.35.2" "transformers==4.57.1" "accelerate==1.10.1" peft safetensors rembg onnxruntime "opencv-python-headless==4.10.0.84"
       - run: python vault/boot.py open
         env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
       - run: python studio/shadow/step4.py draw ${{ matrix.k }} 14 work
