@@ -1,0 +1,85 @@
+name: Shadow Hunter step 4 (FIX 1b-6, first 30 s from the 20-shot table)
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "draw (then cut + render) | cut (then render) | render | test (renderer dry run)"
+        required: true
+        default: draw
+permissions:
+  contents: write
+jobs:
+  draw:
+    if: inputs.stage == 'draw'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        k: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with: {path: ~/.cache/huggingface, key: "hf-sheets-v1"}
+      - run: pip install -q torch --index-url https://download.pytorch.org/whl/cpu && pip install -q cryptography numpy pillow "diffusers==0.35.2" "transformers==4.57.1" "accelerate==1.10.1" peft safetensors opencv-python-headless rembg onnxruntime
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: python studio/shadow/step4.py draw ${{ matrix.k }} 14 work
+        env: {GH_TOKEN: "${{ github.token }}"}
+  cut:
+    needs: draw
+    if: always() && (inputs.stage == 'draw' || inputs.stage == 'cut')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install -q cryptography numpy pillow opencv-python-headless rembg onnxruntime huggingface_hub
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: python studio/shadow/step4.py cut work
+        env: {GH_TOKEN: "${{ github.token }}"}
+  render:
+    needs: cut
+    if: always() && (needs.cut.result == 'success' || inputs.stage == 'render' || inputs.stage == 'test')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-noto-core fonts-dejavu-core libraqm0 libfribidi0 > /dev/null
+      - run: pip install -q cryptography numpy scipy pandas pillow opencv-python-headless edge-tts
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - name: layers
+        if: inputs.stage != 'test'
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          gh release download samples --repo useforyoutube/anime-studio -p 'shadow-s4-layers.zip' --clobber
+          mkdir -p layers && unzip -q -o shadow-s4-layers.zip -d layers && ls layers | wc -l
+      - run: python studio/shadow/step4.py fake layers aud
+        if: inputs.stage == 'test'
+      - run: python studio/shadow/step4.py audio aud
+        if: inputs.stage != 'test'
+      - run: python studio/shadow/step4.py render layers aud out
+      - run: python studio/shadow/step4.py render layers aud out --no-fx
+      - name: checks
+        run: |
+          T=studio/shadow/tools
+          python $T/check_render_log.py out/render_log.csv | tee out/score_render_log.txt
+          python $T/check_animation.py out/step4_nofx.mp4 | tee out/score_animation.txt
+          python $T/check_against_reference.py out/step4.mp4 | tee out/score_reference.txt
+          python $T/composite_check.py out/composite_log.jsonl out/step4.mp4 out/render_log.csv | tee out/score_composite.txt || true
+          python -c "import json;print(json.load(open('aud/lines.json'))['loud'])" | tee out/score_loudness.txt || true
+          cp work/layers/check.json out/inbetween_check.json 2>/dev/null || true
+      - name: contact sheet (2 fps) + frame strips of S07 and S13
+        run: |
+          ffmpeg -v error -y -i out/step4.mp4 -vf "fps=2,scale=320:-1,tile=6x10" -frames:v 1 out/shadow-step4-contact.jpg
+          ffmpeg -v error -y -ss 9 -t 2 -i out/step4.mp4 -vf "select='not(mod(n\,2))',scale=320:-1,tile=8x3" -frames:v 1 out/shadow-step4-strip-S07.jpg
+          ffmpeg -v error -y -ss 18 -t 2 -i out/step4.mp4 -vf "select='not(mod(n\,2))',scale=320:-1,tile=8x3" -frames:v 1 out/shadow-step4-strip-S13.jpg
+          cat out/score_*.txt > out/shadow-step4-scores.txt
+      - name: publish
+        if: inputs.stage != 'test'
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          cd out
+          cp step4.mp4 shadow-step4.mp4; cp step4_nofx.mp4 shadow-step4-nofx.mp4; cp render_log.csv shadow-step4-render_log.csv
+          gh release upload samples --repo useforyoutube/anime-studio --clobber shadow-step4.mp4 shadow-step4-nofx.mp4 shadow-step4-contact.jpg shadow-step4-strip-S07.jpg shadow-step4-strip-S13.jpg shadow-step4-scores.txt shadow-step4-render_log.csv
+      - uses: actions/upload-artifact@v4
+        with: {name: step4-out, path: out, retention-days: 7}
