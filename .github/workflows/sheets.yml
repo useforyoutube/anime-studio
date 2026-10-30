@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       stage:
-        description: "refs | views | faces | layout"
+        description: "refs | bodies | views | faces | layout"
         required: true
         default: refs
 permissions:
@@ -37,6 +37,6 @@ jobs:
         env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
       - name: candidates sheet (after refs) / choose + layout
         run: |
-          if [ "${{ inputs.stage }}" = "refs" ]; then python studio/shadow/sheets.py candidates sheetsrc; python studio/shadow/sheets.py choose sheetsrc; fi
+          if [ "${{ inputs.stage }}" = "refs" ] || [ "${{ inputs.stage }}" = "bodies" ]; then python studio/shadow/sheets.py candidates sheetsrc; python studio/shadow/sheets.py choose sheetsrc; fi
           if [ "${{ inputs.stage }}" = "faces" ] || [ "${{ inputs.stage }}" = "layout" ]; then python studio/shadow/sheets.py layout sheetsrc; fi
         env: {GH_TOKEN: "${{ github.token }}"}
