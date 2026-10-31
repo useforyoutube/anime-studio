@@ -15,6 +15,7 @@ jobs:
     timeout-minutes: 360
     strategy:
       fail-fast: false
+      max-parallel: 6                # owner rule: anime-studio <= 14 jobs at once (youtube-bot never waits)
       matrix:
         k: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
     steps:
