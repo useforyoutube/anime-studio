@@ -1,0 +1,103 @@
+name: Shadow Hunter step 5 (AI motion per shot + lip-sync, first 30 s)
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "keys | clips | lips | final"
+        required: true
+        default: keys
+permissions:
+  contents: write
+env:
+  RENDER_PIP: pip install -q cryptography numpy scipy pandas pillow "opencv-python-headless==4.10.0.84" edge-tts
+jobs:
+  keys:
+    if: inputs.stage == 'keys'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-noto-core fonts-dejavu-core libraqm0 libfribidi0 > /dev/null
+      - run: ${{ env.RENDER_PIP }}
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - name: layers + sound (voice lines fitted inside their shots)
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          gh release download samples --repo useforyoutube/anime-studio -p 'shadow-s4-layers.zip' --clobber
+          mkdir -p layers && unzip -q -o shadow-s4-layers.zip -d layers
+          python studio/shadow/step4.py audio aud
+          cp aud/vikram.wav shadow-s5-vikram.wav; cp aud/mix.wav shadow-s5-mix.wav; cp aud/lines.json shadow-s5-lines.json
+          gh release upload samples --repo useforyoutube/anime-studio --clobber shadow-s5-vikram.wav shadow-s5-mix.wav shadow-s5-lines.json
+      - run: python studio/shadow/step5.py keys layers aud keys
+        env: {GH_TOKEN: "${{ github.token }}"}
+  clips:
+    if: inputs.stage == 'clips'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    continue-on-error: true                    # slow machines leave the queue with exit 75
+    strategy:
+      fail-fast: false
+      max-parallel: 6                # owner rule: anime-studio + FMUSE <= 14 jobs, youtube-bot never waits
+      matrix: {k: [0, 1, 2, 3, 4, 5]}
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+      - run: pip install -q torch --index-url https://download.pytorch.org/whl/cpu && pip install -q cryptography numpy pillow "diffusers==0.35.2" "transformers==4.57.1" "accelerate==1.10.1" safetensors sentencepiece ftfy "opencv-python-headless==4.10.0.84"
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: python studio/shadow/step5.py clips work 5.5
+        env: {GH_TOKEN: "${{ github.token }}", TRY: "${{ matrix.k }}"}
+  lips:
+    if: inputs.stage == 'lips'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.10"}
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
+      - run: pip install -q torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu && pip install -q numpy==1.23.5 librosa==0.9.2 numba==0.56.4 opencv-python-headless==4.8.1.78 tqdm huggingface_hub cryptography pillow scipy
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - run: python studio/shadow/step5.py lips work
+        env: {GH_TOKEN: "${{ github.token }}"}
+  final:
+    if: inputs.stage == 'final'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-noto-core fonts-dejavu-core libraqm0 libfribidi0 > /dev/null
+      - run: ${{ env.RENDER_PIP }}
+      - run: python vault/boot.py open
+        env: {REPO_KEY: "${{ secrets.REPO_KEY }}"}
+      - name: layers + the step-5 sound
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          gh release download samples --repo useforyoutube/anime-studio -p 'shadow-s4-layers.zip' -p 'shadow-s5-mix.wav' -p 'shadow-s5-lines.json' --clobber
+          mkdir -p layers aud && unzip -q -o shadow-s4-layers.zip -d layers
+          cp shadow-s5-mix.wav aud/mix.wav; cp shadow-s5-lines.json aud/lines.json
+      - run: python studio/shadow/step5.py final layers aud out
+        env: {GH_TOKEN: "${{ github.token }}"}
+      - name: checks
+        run: |
+          T=studio/shadow/tools
+          python $T/check_render_log.py out/render_log.csv | tee out/score_render_log.txt
+          python $T/check_animation.py out/step5_nofx.mp4 | tee out/score_animation.txt
+          python $T/check_against_reference.py out/step5.mp4 | tee out/score_reference.txt
+          python $T/composite_check.py out/composite_log.jsonl out/step5.mp4 out/render_log.csv | tee out/score_composite.txt || true
+          python -c "import json;print(json.load(open('aud/lines.json'))['loud'])" | tee out/score_loudness.txt || true
+          cat out/clips_used.json | tee out/score_clips.txt
+      - name: contact sheet (2 fps) + frame strips of S07 and S13
+        run: |
+          ffmpeg -v error -y -i out/step5.mp4 -vf "fps=2,scale=320:-1,tile=6x10" -frames:v 1 out/shadow-step5-contact.jpg
+          ffmpeg -v error -y -ss 9 -t 2 -i out/step5.mp4 -vf "select='not(mod(n\,2))',scale=320:-1,tile=8x3" -frames:v 1 out/shadow-step5-strip-S07.jpg
+          ffmpeg -v error -y -ss 18 -t 2 -i out/step5.mp4 -vf "select='not(mod(n\,2))',scale=320:-1,tile=8x3" -frames:v 1 out/shadow-step5-strip-S13.jpg
+          cat out/score_*.txt > out/shadow-step5-scores.txt
+      - name: publish
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          cd out
+          cp step5.mp4 shadow-step5.mp4; cp step5_nofx.mp4 shadow-step5-nofx.mp4; cp render_log.csv shadow-step5-render_log.csv
+          gh release upload samples --repo useforyoutube/anime-studio --clobber shadow-step5.mp4 shadow-step5-nofx.mp4 shadow-step5-contact.jpg shadow-step5-strip-S07.jpg shadow-step5-strip-S13.jpg shadow-step5-scores.txt shadow-step5-render_log.csv
+      - uses: actions/upload-artifact@v4
+        with: {name: step5-out, path: out, retention-days: 7}
